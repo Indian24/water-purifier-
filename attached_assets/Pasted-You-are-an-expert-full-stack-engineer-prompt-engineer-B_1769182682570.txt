@@ -1,0 +1,318 @@
+You are an expert full-stack engineer + prompt engineer. Build a **production-ready**, SEO-first, accessible, fast, and secure full-stack web application named:
+
+  Brand name: "AquaShield Solutions"
+  Tagline: "Pure Water. Pure Life — Delhi's trusted RO experts"
+
+=====================================================
+PROJECT GOAL
+=====================================================
+
+Build a complete enterprise-level website for:
+RO purifiers, water purifiers, water solutions for home, office, industry.
+
+Target geography:
+- Primary: Delhi NCR (Delhi, Noida, Gurgaon, Ghaziabad, Faridabad)
+- Secondary: All India
+
+Business type:
+A premium professional water solutions company with:
+- Online store
+- Installation & servicing
+- AMC plans
+- Warranty claims
+- Industrial projects
+- Technician network
+
+Main objective:
+MAXIMUM SEO TRAFFIC + MAXIMUM CONVERSION
+
+=====================================================
+TECH STACK (MANDATORY)
+=====================================================
+
+Frontend:
+- Next.js (TypeScript, App Router)
+- Tailwind CSS
+
+Backend:
+- Node.js via Next.js API routes
+- MongoDB Atlas + Mongoose
+
+Integrations:
+- Razorpay (India payments)
+- Stripe (fallback)
+- SendGrid (emails)
+- Google Maps API
+- WhatsApp Business links
+- Cloudinary (images)
+- Google Analytics GA4
+
+Testing:
+- Jest
+- Cypress
+
+=====================================================
+CORE FEATURES
+=====================================================
+
+USER FEATURES:
+- Browse products
+- Search/filter/sort
+- Product detail pages
+- Compare products
+- Add to cart
+- Checkout
+- Razorpay payment
+- EMI calculator
+- Order tracking
+- Warranty registration
+- Service booking
+- Technician locator
+- Blog
+- City landing pages
+- WhatsApp chat
+- Contact forms
+- Reviews & ratings
+
+ADMIN PANEL:
+- Secure login
+- Product CRUD
+- Order management
+- Lead management
+- SEO manager
+- Blog manager
+- Warranty claims
+- Technician manager
+- Reports dashboard
+- CSV export
+
+=====================================================
+DATABASE SCHEMAS (MONGOOSE)
+=====================================================
+
+Product:
+- slug (unique)
+- name
+- brand
+- model
+- category [RO, UV, UF, Industrial, Filter]
+- shortDescription
+- longDescription (HTML)
+- specs [{key,value}]
+- price {mrp, salePrice}
+- warrantyMonths
+- images []
+- stock
+- sku
+- tags []
+- seo {metaTitle, metaDescription, canonical, ogImage}
+
+User:
+- name
+- email
+- phone
+- passwordHash
+- role [customer, admin, technician]
+- addresses []
+- createdAt
+
+Order:
+- orderNumber
+- userRef
+- items [{productRef, qty, price}]
+- subtotal
+- tax
+- shipping
+- totalAmount
+- paymentStatus [pending, paid, failed]
+- orderStatus [placed, confirmed, installed]
+- warrantyStart
+- warrantyEnd
+- logs []
+
+Lead:
+- name
+- phone
+- email
+- city
+- message
+- status
+
+Technician:
+- name
+- phone
+- email
+- geo {lat,lng}
+- serviceAreas []
+- rating
+
+Blog:
+- slug
+- title
+- excerpt
+- body (HTML/MD)
+- seo fields
+
+Review:
+- userRef
+- productRef
+- rating
+- comment
+- approved
+
+=====================================================
+API ENDPOINTS
+=====================================================
+
+/api/products
+/api/products/:slug
+/api/cart
+/api/orders
+/api/payments/razorpay/webhook
+/api/leads
+/api/locations
+/api/blog
+/api/sitemap.xml
+/api/admin/*
+
+=====================================================
+SEO REQUIREMENTS (CRITICAL)
+=====================================================
+
+Every page must include:
+- Meta title
+- Meta description
+- Canonical
+- OpenGraph tags
+- Twitter cards
+
+Generate:
+- sitemap.xml
+- robots.txt
+
+Structured data JSON-LD:
+- LocalBusiness
+- Product
+- FAQPage
+- BreadcrumbList
+- Service
+
+City landing pages:
+- /delhi/ro-purifier
+- /noida/ro-purifier
+- /gurgaon/ro-purifier
+- /ghaziabad/ro-purifier
+- /faridabad/ro-purifier
+
+=====================================================
+SEO COPY (USE THESE)
+=====================================================
+
+Home meta title:
+AquaShield Solutions – Best RO Purifier in Delhi | Installation & AMC
+
+Home meta description:
+Buy best RO & water purifiers in Delhi NCR. Free demo, genuine parts, same-day installation, warranty & AMC.
+
+Home H1:
+Buy RO Purifiers & Water Solutions – Delhi’s Trusted Experts
+
+City H1 template:
+RO Purifier Installation & Service in {City}
+
+=====================================================
+PAYMENT FLOW
+=====================================================
+
+1. Create order in DB
+2. Create Razorpay order
+3. Open Razorpay checkout
+4. Webhook verifies payment
+5. Mark order paid
+6. Send invoice email
+
+=====================================================
+WHATSAPP
+=====================================================
+
+Floating button:
+https://wa.me/91XXXXXXXXXX?text=Hi AquaShield, I need RO in {City}
+
+=====================================================
+PERFORMANCE & SECURITY
+=====================================================
+
+- SSR for product + city pages
+- ISR for blog
+- Input validation
+- Rate limiting
+- CSP headers
+- HTTPS only
+- Webhook signature verification
+
+=====================================================
+SEED DATA
+=====================================================
+
+Create:
+- 10 products
+- 5 blogs
+- 5 cities
+- 3 technicians
+- 1 admin
+
+=====================================================
+BLOG TOPICS
+=====================================================
+
+1. Best RO Purifiers in Delhi (2026)
+2. RO vs UV vs UF
+3. How to check water TDS
+4. Filter replacement guide
+5. Industrial water treatment
+
+=====================================================
+ENV VARIABLES
+=====================================================
+
+MONGODB_URI=
+RAZORPAY_KEY_ID=
+RAZORPAY_KEY_SECRET=
+SENDGRID_API_KEY=
+GOOGLE_MAPS_API_KEY=
+CLOUDINARY_URL=
+GA_MEASUREMENT_ID=
+NEXTAUTH_SECRET=
+
+=====================================================
+DEPLOYMENT
+=====================================================
+
+npm install
+npm run seed
+npm run dev
+
+=====================================================
+ACCEPTANCE CRITERIA
+=====================================================
+
+- Website loads
+- Products visible
+- Checkout works
+- Razorpay works
+- Admin panel works
+- Sitemap exists
+- SEO structured data exists
+- Tests pass
+- README exists
+
+=====================================================
+FINAL INSTRUCTION TO GENERATOR
+=====================================================
+
+Generate full working production code.
+No placeholders.
+SEO first.
+Security first.
+Performance optimized.
+Enterprise quality.
