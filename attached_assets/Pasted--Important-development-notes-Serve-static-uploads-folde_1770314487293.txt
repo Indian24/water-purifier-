@@ -1,0 +1,48 @@
+
+Important development notes:
+- Serve static `uploads` folder: `app.use('/uploads', express.static(path.join(__dirname,'uploads')))`
+- Sanitize content server-side (e.g., `sanitize-html`) before storing to prevent XSS when rendering server-provided HTML.
+- Rate-limit / spam protections: add basic throttle later (phase-2).
+- For production: replace ADMIN_TOKEN flow with proper admin accounts & httpOnly cookies or OAuth.
+
+Deliverable checklist for developer (what to commit):
+- server/schema/blogs.ts (or SQL)
+- server/routes/blogs.ts
+- server/middlewares/adminAuth.ts
+- server/upload handling & static serve
+- updated server/index.ts to mount /api/blogs routes
+- client/src/pages/BlogList.tsx, BlogDetail.tsx, SubmitStoryForm.tsx
+- client/src/admin/BlogAdmin.tsx (or minimal UI)
+- Example seeded post and README notes
+
+UX copy to use for the blog pages (seed content & CTAs):
+- Blog list description: "Knowledge, tips, and customer stories from AquaShield — Delhi's trusted RO repair & service team since 2006. Read experiences, service tips, and product updates."
+- Submit form success message: "Thanks — your submission is received. Our team will review it and publish within 48 hours."
+- Admin approve text: "Approve & publish (adds to 'blogs' and marks submission approved)."
+
+Phase-2 (optional upgrades you can request later):
+- Image CDN (S3 + CloudFront)
+- Email notifications (admin email on new submission)
+- ReCAPTCHA or OTP verification for guest submissions
+- Rich editor (WYSIWYG) for admin posts
+- Automatic sitemap updates & RSS feed
+- Auto share to social or scheduled publishing
+
+---
+
+IMPLEMENTATION PRIORITY (what to do first)
+1. Add DB schema + migration
+2. Add backend routes for submit & list published
+3. Add image upload endpoint & serve static files
+4. Add basic BlogList & BlogDetail pages (client)
+5. Add SubmitStoryForm and wire to backend
+6. Add admin endpoints and a minimal admin page to review & approve
+
+---
+
+If you understand: implement Phase-1 exactly as above — create the files listed, commit to the repo, run migrations, and provide:
+- A short list of changed files (path + purpose)
+- 3 curl examples (submit, admin list, admin approve)
+- One sample published blog (seeded) visible at /blog and /blog/:slug
+
+Finish Phase-1 with basic documentation in `README.md` under `Blog feature` section describing endpoints, env vars, and admin token usage.

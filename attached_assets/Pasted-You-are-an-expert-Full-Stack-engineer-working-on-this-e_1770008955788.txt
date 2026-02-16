@@ -1,0 +1,87 @@
+You are an expert Full-Stack engineer working on this existing project (React + Vite frontend, Express + TypeScript backend).
+
+GOAL:
+Update the contact details **everywhere in the codebase** so that:
+- Phone number / WhatsApp number → 8700762477
+- Email address → ranjanmanish615@gmail.com
+
+This must be done consistently across frontend UI, backend responses, static content, configs, and metadata.
+
+--- EXACT REQUIREMENTS ---
+
+1) PHONE / WHATSAPP UPDATE
+Replace **all occurrences** of old phone numbers (including but not limited to):
+- +91 8178875502
+- +91 9999393355
+- Any other phone variants (with/without +91, spaces, hyphens)
+
+WITH:
+- Display format (UI): +91 8700762477
+- Raw format (links, APIs): 8700762477
+
+Places to update:
+- Header / Top bar
+- Footer
+- Call Now buttons
+- WhatsApp floating button
+- Contact sections
+- Hero CTA text
+- Service booking forms
+- Static text blocks (marketing content, descriptions)
+- Any hardcoded constants or config files
+- Any backend response that returns contact info
+- Meta tags (if phone appears)
+- README or docs (if phone appears)
+
+Ensure:
+- `tel:` links → `tel:+918700762477`
+- WhatsApp links → `https://wa.me/918700762477`
+
+2) EMAIL UPDATE
+Replace **all occurrences** of any old email address with:
+- ranjanmanish615@gmail.com
+
+Places to update:
+- Contact sections
+- Footer
+- Forms (default email, admin email, support email)
+- Backend configs/constants
+- README / documentation
+- Meta tags (if email exists)
+- Any API payloads or response examples
+
+3) CODE QUALITY RULES
+- Do NOT miss any file (search entire repo).
+- Preserve formatting and styling.
+- Do not introduce hard-coded duplicates—if a central config exists, refactor to reuse it.
+- If no central config exists, create one:
+  - `client/src/lib/contact.ts` (export phone, whatsapp, email)
+  - `server/config/contact.ts` (same values for backend use)
+  And replace all hardcoded usage with imports.
+
+4) VERIFICATION STEPS (MANDATORY)
+After changes:
+- Run `npm run dev`
+- Confirm in browser:
+  - Header shows updated phone
+  - Call Now works
+  - WhatsApp button opens correct chat
+  - Footer and contact sections show new email & phone
+- Confirm no old phone/email remains via project-wide search.
+
+5) COMMIT
+Commit message (exact):
+`chore(contact): update phone number and email across entire project`
+
+Push the changes to the current branch.
+
+6) FINAL RESPONSE FORMAT
+In your final message, include:
+- List of files modified
+- Confirmation that no old phone/email remains
+- Screenshot-equivalent textual confirmation (e.g. header/footer strings)
+- Git commit hash
+
+Do NOT ask follow-up questions. Make safe assumptions and complete the task fully.
+
+END OF PROMPT

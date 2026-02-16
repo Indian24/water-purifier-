@@ -1,0 +1,58 @@
+TASK
+-----
+Make the site email clickable everywhere it appears and make clicks open Gmail compose in a new tab (for web users) with a pre-filled "to" address, subject and optional body. Fallback to a standard mailto: link for default mail clients. Replace all visible occurrences of the string:
+
+    ranjanmanish615@gmail.com
+
+with a reusable component so future updates are one place.
+
+GOALS
+-----
+1. Replace plain text email across the React frontend with a new EmailLink component.
+2. Clicking the component should:
+   - Open Gmail compose in a new browser tab using URL:
+     https://mail.google.com/mail/?view=cm&fs=1&to=<EMAIL>&su=<SUBJECT>&body=<BODY>
+     (URL-encoded)
+   - If target user's default mail client is preferable, the link should also have a `mailto:` fallback.
+3. Make it accessible (aria-label) and keyboard-navigable.
+4. Track clicks via existing analytics (if available) by emitting event `contact_email_click` with `{ method: "gmail" | "mailto" }`.
+5. Ensure site-wide replacement: update header/contact page/footer and any other places where the email appears as plain text.
+6. Write a small unit test for the component and a short README note where to change the email later.
+
+IMPLEMENTATION DETAILS
+----------------------
+- React + TypeScript (Vite). Add a new file:
+
+  client/src/components/EmailLink.tsx
+
+  (Use code provided below as the implementation.)
+
+- Replace all instances of the plain email string in `client/src` with `<EmailLink/>` or import/use the helper where appropriate. If the email appears in static HTML templates (index.html), update there to use a direct anchor fallback.
+
+- Use `encodeURIComponent()` for subject/body.
+
+- Default subject: `"AquaShield website enquiry"`; default body: `"Hello, I would like to enquire about ... (provide details)"`. These can be overridden by passing props.
+
+- Accessibility: add `aria-label="Email AquaShield — opens Gmail compose"` and visible text should remain the email address.
+
+- Analytics: if `window.gtag` exists, call `gtag('event', 'contact_email_click', { method: 'gmail' })`. If another analytics system exists, also emit a custom event `window.dispatchEvent(new CustomEvent('contact_email_click', { detail }))`.
+
+- Tests: add a Jest (or existing test framework) test that renders component and asserts hrefs are correct for both Gmail URL and mailto.
+
+- README: add a one-line guide under README.md "How to change contact email" pointing to the single source of truth file.
+
+DELIVERABLES
+------------
+1. `client/src/components/EmailLink.tsx` (component)
+2. Replaced instances of the plain email with the component
+3. Unit test file: `client/src/components/EmailLink.test.tsx`
+4. README snippet updated
+5. Short commit message: "feat: add EmailLink component + replace email occurrences; open Gmail compose + mailto fallback"
+
+EXTRA NOTES
+-----------
+- Use target="_blank" rel="noopener noreferrer" for Gmail URL.
+- If user is on mobile, Gmail URL will open gmail app if user is logged-in and browser supports it; mailto will open the device mail app.
+- For server-rendered static pages (index.html) keep a static `<a href="mailto:...">` fallback.
+
+If you understand, implement the `EmailLink` component and replace all email text occurrences across `client/src` and `client/index.html` with the component or fallback anchor. Notify me when done and list changed files.

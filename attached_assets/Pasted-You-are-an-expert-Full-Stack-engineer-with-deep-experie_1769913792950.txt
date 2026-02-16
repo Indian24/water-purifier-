@@ -1,0 +1,157 @@
+You are an expert Full-Stack engineer with deep experience building secure authentication systems in TypeScript (React + Vite frontend and Express + PostgreSQL + Drizzle backend). I have a repo structured like:
+
+- client/ (React + Vite + TypeScript)
+- server/ (Express + TypeScript)
+- shared/ (shared types / schema)
+- drizzle.config.ts
+- .env (DATABASE_URL exists)
+
+Implement a complete, production-ready **Login & Register** feature (frontend + backend) and wire it to the DB and session store. Make safe defaults, add validation, and commit all changes. Do not ask clarifying questions — make a best-effort where something is ambiguous.
+
+--- TASKS (do these in order) ---
+
+1) PACKAGES: install any missing dependencies in the repo (add to package.json and run npm install). Use these packages:
+   - server-side: bcrypt (or bcryptjs), express-rate-limit, helmet, validator (optional), connect-pg-simple (already present), cookie-parser
+   - client-side: axios, react-hook-form, zod, @hookform/resolvers
+   Use TypeScript typed packages where available.
+
+2) DATABASE (Drizzle):
+   - Create a new `users` schema using Drizzle in `shared/schema.ts` or add `server/db/schema.ts` & import it in existing drizzle config. Schema must include:
+     - id (serial / integer / primary key)
+     - name (string, not null)
+     - email (string, unique, not null)
+     - password_hash (string, not null)
+     - phone (string, nullable)
+     - role (string, default 'user')
+     - created_at (timestamp, default now)
+     - is_active (boolean default true)
+   - If drizzle migrations are used, create a migration or update the config so `drizzle-kit push` will create/update table. If that's not feasible programmatically, create SQL in `server/migrations/001_create_users.sql`. Commit the SQL too.
+
+3) SERVER: implement authentication endpoints and session:
+   - Add secure session middleware to `server/index.ts`:
+     - Use `express-session` with `connect-pg-simple` store (configured with `process.env.DATABASE_URL`).
+     - Session cookie: `httpOnly: true`, `secure: process.env.NODE_ENV === 'production'`, `sameSite: 'lax'`, reasonable maxAge (7 days).
+     - Use `SESSION_SECRET` environment variable — if missing, generate a fallback but log warning.
+     - Enable `helmet()` middleware and `express.json()`; apply `express-rate-limit` for auth routes.
+   - Add endpoints in `server/routes.ts` or `server/auth.ts`:
+     1. `POST /api/auth/register`
+        - Accept `{ name, email, password, phone }`.
+        - Validate input using zod or server-side checks (email format, password min 8 chars).
+        - Check unique email; if taken, return 409.
+        - Hash password using bcrypt (saltRounds 10 or env override).
+        - Insert user record to DB.
+        - Create session: `req.session.userId = user.id`.
+        - Respond with sanitized user object (no password_hash).
+     2. `POST /api/auth/login`
+        - Accept `{ email, password }`.
+        - Validate input.
+        - Find user by email, compare password with bcrypt.
+        - If OK, set session `req.session.userId = user.id` and return user data.
+        - On failure, return 401.
+     3. `POST /api/auth/logout`
+        - Destroy session server-side and remove cookie.
+     4. `GET /api/auth/user`
+        - Return currently logged-in user (based on `req.session.userId`) or `null`.
+     5. Add middleware `ensureAuthenticated` that checks `req.session.userId` and returns 401 if not authenticated (for future protected routes).
+   - Use `try/catch` and proper error status codes and JSON responses `{ error: 'message' }`.
+   - Add server-side rate limit only to `/api/auth/*` routes (e.g., 5 attempts / minute).
+
+4) FRONTEND: create React components and wiring (TypeScript):
+   - Create `client/src/components/auth/` and add:
+     - `LoginForm.tsx`
+     - `RegisterForm.tsx`
+     - `AuthProvider.tsx` (React Context that holds `user` and `setUser`, and helper methods `login`, `logout`, `register`, `fetchUser`)
+   - Use `react-hook-form` + `zod` via `@hookform/resolvers/zod` for client validation. Password rules: min 8 chars.
+   - Use `axios` configured in `client/src/lib/api.ts`:
+     - `axios.create({ baseURL: '/api', withCredentials: true })`
+   - `LoginForm` behavior:
+     - Fields: email, password, remember me (optional).
+     - Submit calls `POST /api/auth/login`, on success update AuthContext and redirect to `/` or previous location. Show error messages if login fails.
+   - `RegisterForm` behavior:
+     - Fields: name, email, phone (optional), password, confirm password.
+     - Validate password confirm, call `POST /api/auth/register`, on success update AuthContext and redirect to `/`.
+   - `AuthProvider`:
+     - On mount, call `GET /api/auth/user` to populate `user`.
+     - Expose `login`, `register`, `logout`, `user` and `isLoading`.
+   - Add routes/pages:
+     - `client/src/pages/Login.tsx` and `client/src/pages/Register.tsx` that render forms and simple SEO friendly headings and meta tags.
+   - Header/UI:
+     - Update header component (wherever navbar exists) to show `Login / Register` links if not authed, and `Hello, {name}` + `Logout` when authed. Clicking `Logout` calls `POST /api/auth/logout` and clears context.
+
+5) SECURITY & UX:
+   - Ensure cookie `HttpOnly` and `secure` in production.
+   - Do NOT expose password_hash in API.
+   - Use server-side input validation (zod or express-validator).
+   - Add server logging for auth events but do **not** log plain passwords.
+   - Add friendly error messages (e.g., `Invalid credentials`, `Email already exists`).
+   - Protect against brute force by rate-limiting login route.
+
+6) DEV / TEST / VERIFY:
+   - Add unit / integration test scripts if repo uses jest; otherwise provide manual test instructions.
+   - Provide cURL examples to test:
+     - Register:
+       `curl -i -X POST -H "Content-Type: application/json" -c cookiejar.txt -d '{"name":"Test","email":"t@ex.com","password":"MyPass123"}' https://<REPLIT_URL>/api/auth/register`
+     - Login:
+       `curl -i -X POST -H "Content-Type: application/json" -c cookiejar.txt -d '{"email":"t@ex.com","password":"MyPass123"}' https://<REPLIT_URL>/api/auth/login`
+     - Get user:
+       `curl -i -X GET -b cookiejar.txt https://<REPLIT_URL>/api/auth/user`
+     - Logout:
+       `curl -i -X POST -b cookiejar.txt https://<REPLIT_URL>/api/auth/logout`
+
+7) ENVIRONMENT:
+   - Add these env vars to `.env` (or ensure they exist):
+     - `DATABASE_URL` (already present)
+     - `SESSION_SECRET` (required)
+     - `NODE_ENV` (development/production)
+     - `BCRYPT_SALT_ROUNDS` (optional, default 10)
+   - Update README (or add README_AUTH.md) describing how to run locally, how to set env vars, and how to create the DB table (drizzle-kit push or run SQL).
+
+8) FILES TO CREATE / UPDATE (exact paths):
+   - `server/auth.ts` (new) — all auth routes & middleware
+   - `server/db.ts` — ensure Drizzle client exported & add users schema or update `shared/schema.ts`
+   - `shared/schema.ts` (or `server/db/schema.ts`) — users table
+   - `client/src/components/auth/LoginForm.tsx`
+   - `client/src/components/auth/RegisterForm.tsx`
+   - `client/src/components/auth/AuthProvider.tsx`
+   - `client/src/lib/api.ts` — axios instance
+   - `client/src/pages/Login.tsx`
+   - `client/src/pages/Register.tsx`
+   - update `client/src/App.tsx` or `client/src/main.tsx` to add routes for Login & Register and wrap app with `AuthProvider`
+   - update `server/index.ts` to import `server/auth.ts` routes (mount at `/api/auth`)
+   - add tests or examples in `server/test-auth-sanity.sh` (optional)
+
+9) UI/UX DETAILS:
+   - Forms should show inline validation errors and a global error alert.
+   - After login/register the UI should show user name in header and a logout button.
+   - Keep the styling consistent with site (use existing Tailwind classes present in project).
+
+10) COMMIT & PUSH:
+   - Commit message: `feat(auth): add login & register (frontend + backend) with sessions and DB users table`
+   - Push to current branch.
+   - After push, run `npm run dev` and ensure:
+     - Server starts without TypeScript errors
+     - `GET /api/auth/user` returns `null` for anonymous (200) and user object when logged in
+     - Frontend displays login/register pages and they work end-to-end in the browser
+
+11) DELIVERABLES (in final assistant message):
+   - A short summary listing changed files and commit id.
+   - The exact console output proving the server started (e.g., `express listening on port 5000`, `vite dev server started`).
+   - cURL example outputs for register → login → get user → logout showing successful flows.
+
+--- EXTRA NOTES & RESTRICTIONS ---
+- Use express-session + connect-pg-simple (preferred) to reuse existing DB and keep session server-side. If connect-pg-simple setup fails, fallback to JWT in HttpOnly cookie (implement both if you can detect DB store availability).
+- Do NOT implement email delivery unless requested. If email verification is added, note that real email sending requires SMTP credentials and is optional.
+- Keep all code TypeScript (.ts/.tsx) and lint-free where possible. Use existing monorepo structures and prefer existing helper functions.
+- If file names or structure differ in repo, detect the correct entry points (e.g., `client/src/pages/Home.tsx` or `client/src/App.tsx`) and integrate there.
+
+---
+
+Work autonomously, commit, push, and return a final message that includes:
+1) list of files modified/created,
+2) the commit id / git log line for the commit,
+3) the `npm run dev` output (server + vite),
+4) cURL quick test results showing the register/login/user/logout flow.
+
+If anything fails to run, include error logs and a short remediation note.
+
+End of prompt.

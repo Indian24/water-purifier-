@@ -1,0 +1,175 @@
+You are a senior full-stack engineer AI. The full requested project (auth + contact pipeline + technician application + DB migrations + email notifications + secure cookies + frontend integration) is large. This run MUST be limited to a safe, testable Phase 1 unless you have explicit higher-autonomy permission from the operator.
+
+--- HIGH-LEVEL: split into two phases (only Phase 1 runs now)
+PHASE 1 (required now — fits Fast/limited mode):
+- Implement core Drizzle DB schema for users, leads, technician_applications
+- Run a Drizzle push (migration) to create the tables
+- Add backend API routes:
+  - POST /api/auth/register  -> create user (store hashed password), return JWT in JSON response
+  - POST /api/auth/login     -> verify credentials, return JWT in JSON response
+  - GET  /api/auth/user      -> read JWT from Authorization Bearer header and return user data (or null)
+  - POST /api/contact        -> create a lead record (leads table)
+  - POST /api/join           -> create a technician application record (technician_applications table)
+- Minimal token approach: return JWT in JSON body (e.g. { token, user }) for prototype testing. DO NOT set httpOnly cookies in Phase 1.
+- Add simple frontend components/forms (React/TSX) that POST to the above endpoints and show success/error messages:
+  - RegisterForm, LoginForm (page /auth)
+  - ContactForm (update Contact page to POST /api/contact)
+  - JoinUsForm (add to Contact page)
+- Provide exact commands to run, test, and verify locally (npm install, npm run db:push, npm run dev, curl examples).
+- No SMTP/nodemailer, no admin email notifications, no reCAPTCHA, no rate-limiter in Phase 1.
+- Keep code minimal, TypeScript-safe, and consistent with existing project structure (server/index.ts, server/routes.ts, server/db, client/src/components).
+
+PHASE 2 (only perform if operator explicitly grants higher autonomy):
+- Replace token-in-body with secure httpOnly cookie JWT flow
+- Add Nodemailer / SMTP admin notifications on new leads/applications
+- Add server-side rate-limiting, reCAPTCHA verification on forms
+- Add admin UI to view leads + applications (protected)
+- Production-ready security hardening and deployment recipe
+
+--- ENV / prerequisites (Phase 1)
+Add or verify in .env (only uncomment values needed for Phase 1):
+DATABASE_URL=postgresql://...   # already present
+JWT_SECRET=replace_with_a_secret_32+   # required (Phase 1)
+# (SMTP_ vars are for Phase 2; don't require now)
+
+--- PHASE 1: DB schema (Drizzle)
+Create a Drizzle schema file (server/db/schema/auth.ts or similar). Use these tables:
+
+// server/db/schema/auth.ts
+import { pgTable, serial, varchar, text, timestamp } from "drizzle-orm/pg-core";
+
+export const users = pgTable("users", {
+  id: serial("id").primaryKey(),
+  name: varchar("name", { length: 120 }).notNull(),
+  email: varchar("email", { length: 320 }).notNull().unique(),
+  password_hash: text("password_hash").notNull(),
+  role: varchar("role", { length: 30 }).default("customer"),
+  created_at: timestamp("created_at").defaultNow().notNull()
+});
+
+export const leads = pgTable("leads", {
+  id: serial("id").primaryKey(),
+  name: varchar("name", { length: 120 }).notNull(),
+  phone: varchar("phone", { length: 32 }).notNull(),
+  email: varchar("email", { length: 320 }).default(null),
+  message: text("message").default(null),
+  source: varchar("source", { length: 80 }).default("website"),
+  created_at: timestamp("created_at").defaultNow().notNull()
+});
+
+export const technician_applications = pgTable("technician_applications", {
+  id: serial("id").primaryKey(),
+  name: varchar("name", { length: 120 }).notNull(),
+  phone: varchar("phone", { length: 32 }).notNull(),
+  email: varchar("email", { length: 320 }).default(null),
+  city: varchar("city", { length: 80 }).default(null),
+  experience_years: varchar("experience_years", { length: 40 }).default(null),
+  message: text("message").default(null),
+  created_at: timestamp("created_at").defaultNow().notNull()
+});
+
+After adding the file, run:
+npm run db:push
+
+--- PHASE 1: Backend routes (TypeScript / minimal)
+Add two route files or add to existing server/routes.ts:
+
+1) server/routes/auth.ts
+- POST /api/auth/register
+  - Validate with zod: { name, email, password }
+  - Hash password with bcryptjs
+  - Insert into users table via Drizzle
+  - Create JWT: jwt.sign({ id, email }, process.env.JWT_SECRET, { expiresIn: "7d" })
+  - Respond: 201 { user: { id, name, email }, token }
+- POST /api/auth/login
+  - Validate: { email, password }
+  - Find user, compare bcrypt.compare
+  - If ok: sign token and return { user, token }
+- GET /api/auth/user
+  - Read Authorization: Bearer <token>; verify with jwt.verify
+  - Return user data if token valid, otherwise null
+
+2) server/routes/contact.ts
+- POST /api/contact
+  - Validate { name, phone, email?, message? }
+  - Insert into leads
+  - Respond { ok: true, id }
+- POST /api/join
+  - Validate { name, phone, email?, city?, experience_years?, message? }
+  - Insert into technician_applications
+  - Respond { ok: true, id }
+
+Middleware: ensure server/index.ts has:
+app.use(express.json());
+app.use(cookieParser());  // cookie parser okay but we do not use cookies in Phase 1
+
+Note: use zod for body validation and handle errors with 400/422.
+
+--- PHASE 1: Frontend components (React TypeScript)
+Add minimal components that fit the existing UI/structure. Use fetch to call endpoints. Show success/error messages.
+
+Add files:
+- client/src/components/RegisterForm.tsx
+- client/src/components/LoginForm.tsx
+- client/src/components/ContactForm.tsx (or modify page)
+- client/src/components/JoinUsForm.tsx
+
+Behavior:
+- RegisterForm -> POST /api/auth/register; show message; store returned token in localStorage for test purposes.
+- LoginForm -> POST /api/auth/login; store token in localStorage.
+- ContactForm -> POST /api/contact
+- JoinUsForm -> POST /api/join
+
+Testing from browser: after login, optionally call GET /api/auth/user by sending Authorization: Bearer <token> in fetch headers.
+
+--- PHASE 1: Exact test commands (copy & run)
+# install deps
+npm install bcryptjs jsonwebtoken zod cookie-parser
+npm install -D @types/bcryptjs @types/jsonwebtoken
+
+# push DB (after adding schema)
+npm run db:push
+
+# start dev
+npm run dev
+
+# curl examples:
+# register
+curl -X POST http://localhost:5000/api/auth/register -H "Content-Type: application/json" -d '{"name":"Test User","email":"test@example.com","password":"secret123"}'
+
+# login
+curl -X POST http://localhost:5000/api/auth/login -H "Content-Type: application/json" -d '{"email":"test@example.com","password":"secret123"}'
+
+# create lead
+curl -X POST http://localhost:5000/api/contact -H "Content-Type: application/json" -d '{"name":"Lead","phone":"+919812345678","message":"Need service"}'
+
+# create join application
+curl -X POST http://localhost:5000/api/join -H "Content-Type: application/json" -d '{"name":"Tech","phone":"+919812345678","city":"Delhi","experience_years":"3"}'
+
+# verify token usage (replace TOKEN)
+curl -X GET http://localhost:5000/api/auth/user -H "Authorization: Bearer TOKEN"
+
+--- PHASE 1: Minimal Security notes (prototype)
+- Passwords hashed with bcrypt.
+- JWT secret required (env var).
+- Tokens returned in JSON response (not secure for prod). Phase 2 will move to httpOnly cookie.
+- Rate-limiting and reCAPTCHA reserved for Phase 2.
+
+--- PHASE 2: (Only run if operator explicitly approves higher autonomy)
+When allowed, do all secure features:
+- Replace token-in-body with httpOnly cookie JWT: set cookie on login/register with secure flags.
+- Implement nodemailer/SMTP notifications for admin (ADMIN_EMAIL env).
+- Add express-rate-limit + recaptcha checks on contact/join.
+- Add admin UI to read leads/applications (protected by admin role).
+- Add email verification and password reset flows.
+- Production deployment guide: provide Vercel (frontend) + Render/ Railway (backend) setup; set environment vars.
+
+--- OUTPUT from the agent (what I expect you to return when Phase 1 completes)
+1) A concise summary list of files changed/created (path + 1-line description).
+2) The exact commands you ran (or precise commands the operator should run).
+3) A short test transcript showing successful curl/register/login/contact/join examples with sample responses (or explain any errors).
+4) A short list of next steps for Phase 2 including required env vars and changes.
+
+--- IMPORTANT: DO NOT run Phase 2 unless the operator explicitly says "Proceed with Phase 2" and gives permission to run higher-autonomy tasks (email secrets, production cookie changes, etc).
+
+If you understand, proceed with **PHASE 1 only** and return the required outputs (files changed, commands run, test transcript, next steps).

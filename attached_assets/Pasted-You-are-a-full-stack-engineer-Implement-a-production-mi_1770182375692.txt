@@ -1,0 +1,224 @@
+You are a full-stack engineer. Implement a production-minded Phase-1 blog system for the AquaShield site with: (A) company blog posts (admin-created), (B) customer-submitted posts/reviews (guest or logged-in) that go into a moderation queue, (C) a public listing page & detail page, (D) image support for hero/background images, (E) simple admin publish/unpublish UI endpoints. Keep it secure, testable, and minimal: no 3rd-party CMS, no email sending in Phase-1 (optional later).
+
+GOAL: Add a Blog feature so visitors can read company posts, and customers can submit reviews/articles that admins approve before publishing.
+
+High-level constraints:
+- Phase-1: local file image storage (server `/uploads`), later migrate to S3/Cloud Storage.
+- Use existing stacks: server: Express + TypeScript + Drizzle (Postgres); client: React + TypeScript (Vite).
+- Simple admin control: use existing auth if available; otherwise support `ADMIN_TOKEN` env fallback for admin endpoints.
+- Input validation using `zod` (or manual validation).
+- Keep endpt JSON-based; frontend fetches JSON.
+
+=== BACKEND: server/ implementation spec ===
+Files to add/modify:
+- server/db.ts — add new migrations/tables (or update Drizzle schema).
+- server/models/blogs.ts (or shared/schema.ts) — drizzle table definitions.
+- server/routes/blogs.ts — new routes for blog operations.
+- server/uploads/ (create) — store uploaded images.
+- server/middlewares/adminAuth.ts — simple admin auth using JWT or ADMIN_TOKEN.
+
+ENV variables required:
+- DATABASE_URL
+- JWT_SECRET (if you use JWT auth)
+- ADMIN_TOKEN (for prototype admin calls)
+- UPLOAD_DIR (default ./server/uploads)
+
+DB schema (Drizzle/SQL):
+-- blogs table (articles written by admin)
+CREATE TABLE blogs (
+id SERIAL PRIMARY KEY,
+title TEXT NOT NULL,
+slug TEXT UNIQUE NOT NULL,
+excerpt TEXT,
+content TEXT NOT NULL,
+hero_image TEXT, -- path to uploaded image
+featured BOOLEAN DEFAULT FALSE,
+status VARCHAR(16) DEFAULT 'draft', -- 'draft'|'published'|'archived'
+author_name TEXT,
+created_at TIMESTAMP DEFAULT now(),
+updated_at TIMESTAMP DEFAULT now()
+);
+
+-- submissions table (customer-submitted posts/reviews)
+CREATE TABLE blog_submissions (
+id SERIAL PRIMARY KEY,
+name TEXT,
+email TEXT,
+phone TEXT,
+title TEXT,
+content TEXT,
+images TEXT[], -- array of paths
+status VARCHAR(16) DEFAULT 'pending', -- 'pending'|'approved'|'rejected'
+created_at TIMESTAMP DEFAULT now()
+);
+
+-- comments (optional for later)
+CREATE TABLE blog_comments (
+id SERIAL PRIMARY KEY,
+blog_id INTEGER REFERENCES blogs(id) ON DELETE CASCADE,
+name TEXT,
+content TEXT,
+status VARCHAR(16) DEFAULT 'pending',
+created_at TIMESTAMP DEFAULT now()
+);
+
+
+API endpoints (server/routes/blogs.ts):
+- Public
+  - GET /api/blogs?page=1&limit=10 — returns paginated published posts (status='published'), total count
+  - GET /api/blogs/:slug — returns blog detail (published only) + related metadata
+  - GET /api/blogs/recent?limit=5 — returns latest published posts
+- Submission / Guest
+  - POST /api/blogs/submit
+    - body: { name, email (optional), phone (optional), title, content, images[] (multipart allowed) }
+    - action: save into `blog_submissions` status='pending' and return {id, status}
+    - validation: title length >= 6, content >= 30 chars
+- Admin (protected)
+  - GET /api/admin/submissions?status=pending — list pending submissions
+  - GET /api/admin/submissions/:id — single submission
+  - POST /api/admin/submissions/:id/approve — approve -> copy content into `blogs` as draft/published (admin chooses), mark submission.status='approved'
+  - POST /api/admin/blogs — create new blog (admin)
+  - PUT /api/admin/blogs/:id — update blog
+  - POST /api/admin/blogs/:id/publish — set status='published'
+  - DELETE /api/admin/blogs/:id — delete blog
+  - POST /api/admin/upload-image — accepts multipart/form-data image upload => returns { url: "/uploads/...." }
+
+Admin protection:
+- Use JWT auth if your app has users, else require header `x-admin-token: <ADMIN_TOKEN>`. Implement middleware `adminAuth` to check.
+
+Image upload:
+- Accept `multipart/form-data` with `file` field.
+- Validate content-type (image/*), size <= 5MB.
+- Save to `UPLOAD_DIR` with unique filename (timestamp + random + original ext)
+- Return public path `https://<HOST>/uploads/<file>` (server must serve static folder)
+
+Database migration:
+- Add drizzle schema files e.g. `server/schema/blogs.ts` and run `drizzle-kit push` or raw SQL migration.
+
+=== FRONTEND: client/ implementation spec ===
+Files to add/modify (put under client/src/pages, client/src/components):
+- client/src/pages/BlogList.tsx — displays paginated list of posts; each card shows title, excerpt, date, hero image; recommended CTA: "Read more".
+- client/src/pages/BlogDetail.tsx — shows full article, schema meta tags, related posts and comment/submit form.
+- client/src/components/BlogCard.tsx — reusable card.
+- client/src/components/SubmitStoryForm.tsx — a form for guests to submit stories/reviews; uses multipart upload for images.
+- client/src/admin/BlogAdmin.tsx — simple UI for admins to list submissions and approve/publish.
+- Update `client/src/App.tsx` or router to add routes `/blog`, `/blog/:slug`, `/admin/blogs`, `/blog/submit`
+
+UX & behavior:
+- BlogList: fetch GET /api/blogs, show pagination, show featured hero card on top.
+- BlogDetail: fetch /api/blogs/:slug; include JSON-LD schema in head (Article), meta title & description (SEO).
+- SubmitStoryForm: fields name, email, phone, title, content, images (0..3). On submit: POST /api/blogs/submit (multipart). Show success message: "Thank you — your submission is received and will be reviewed within 48 hours."
+- Admin UI: protected by local ADMIN_TOKEN fallback; list pending submissions with Approve/Reject buttons; Approve -> open small editor (title/content tweaks) then Publish.
+
+SEO:
+- BlogList meta: canonical page, title: "AquaShield Blog — RO repair, water tips & customer stories"
+- BlogDetail meta: `<title>{post.title} | AquaShield — RO repair in Delhi</title>`; meta description = excerpt; add `rel=canonical`; add Open Graph tags.
+- Add JSON-LD Article schema: author, datePublished, headline, image, publisher(LocalBusiness).
+- Add server generated sitemap.xml endpoint optionally: generate from published blog slugs.
+
+Accessibility & mobile:
+- Ensure responsiveness for BlogCard grid; single-column on mobile; images lazy-load.
+- Make SubmitStoryForm friendly for mobile (file inputs, character counters).
+- Tables previously created (price tables) remain responsive.
+
+Moderation workflow:
+- Submissions saved as pending.
+- Admin reviews via `/api/admin/submissions`.
+- Admin Approves -> create blog or create entry in `blogs` status='published' or 'draft' depending on choices.
+- On approve, optionally flag original submission as `approved_by` and `approved_at`.
+- Rejected submissions get a `rejected_reason` stored for record.
+
+Sample seed content (to include in initial migration/create script):
+- Company history snippet:
+  "AquaShield has been delivering RO repair and installation across Delhi since 2006. Over 100,000 customers served across residential and industrial segments. Our major service areas include South Delhi (Chhatarpur, Saket, Malviya Nagar, Vasant Vihar, Hauz Khas, Kalkaji, RK Puram), Central Delhi, West Delhi, Noida, Gurgaon and Faridabad."
+- Create one featured post: title "We've Served 100,000+ Customers Since 2006" with hero image placeholder `/uploads/history-hero.jpg`.
+
+Locations list:
+- Create an array constant (client & server) of South Delhi neighborhoods to use in blog content / filters:
+  [ "Chhatarpur", "Saket", "Malviya Nagar", "Vasant Vihar", "Hauz Khas", "Hauz Khas Enclave", "INA", "Green Park", "Panchsheel Park", "Mehrauli", "Nanakpura", "RK Puram", "Vasant Kunj", "Dwarka Sector 7" ]
+- Add server-side tag/region filter for SEO landing pages later: `/blogs?region=south-delhi`
+
+Dev / Run steps & commands (copy-paste):
+1. Install server deps:
+cd server
+npm i dotenv multer zod bcryptjs jsonwebtoken nanoid
+npm i -D @types/multer
+
+2. Update `server/.env`:
+DATABASE_URL=postgresql://...
+JWT_SECRET=some_long_secret
+ADMIN_TOKEN=supersecretadmin123
+UPLOAD_DIR=./uploads
+
+3. Run DB migration:
+- If using drizzle: add `server/schema/blogs.ts` and `drizzle-kit push`.
+- Or use SQL: run provided SQL in your DB client.
+4. Start dev:
+npm run dev
+
+5. Client:
+cd client
+npm i
+npm run dev
+
+
+Example API curl tests:
+- Submit story (multipart):
+curl -X POST http://localhost:5000/api/blogs/submit
+-F "name=Rohit"
+-F "email=rohit@example.com"
+-F "title=My RO repair experience"
+-F "content=I had a great experience, the technician..."
+-F "file=@/path/to/photo1.jpg"
+
+- Admin list pending (use ADMIN_TOKEN):
+curl -H "x-admin-token: supersecretadmin123" http://localhost:5000/api/admin/submissions?status=pending
+
+
+Important development notes:
+- Serve static `uploads` folder: `app.use('/uploads', express.static(path.join(__dirname,'uploads')))`
+- Sanitize content server-side (e.g., `sanitize-html`) before storing to prevent XSS when rendering server-provided HTML.
+- Rate-limit / spam protections: add basic throttle later (phase-2).
+- For production: replace ADMIN_TOKEN flow with proper admin accounts & httpOnly cookies or OAuth.
+
+Deliverable checklist for developer (what to commit):
+- server/schema/blogs.ts (or SQL)
+- server/routes/blogs.ts
+- server/middlewares/adminAuth.ts
+- server/upload handling & static serve
+- updated server/index.ts to mount /api/blogs routes
+- client/src/pages/BlogList.tsx, BlogDetail.tsx, SubmitStoryForm.tsx
+- client/src/admin/BlogAdmin.tsx (or minimal UI)
+- Example seeded post and README notes
+
+UX copy to use for the blog pages (seed content & CTAs):
+- Blog list description: "Knowledge, tips, and customer stories from AquaShield — Delhi's trusted RO repair & service team since 2006. Read experiences, service tips, and product updates."
+- Submit form success message: "Thanks — your submission is received. Our team will review it and publish within 48 hours."
+- Admin approve text: "Approve & publish (adds to 'blogs' and marks submission approved)."
+
+Phase-2 (optional upgrades you can request later):
+- Image CDN (S3 + CloudFront)
+- Email notifications (admin email on new submission)
+- ReCAPTCHA or OTP verification for guest submissions
+- Rich editor (WYSIWYG) for admin posts
+- Automatic sitemap updates & RSS feed
+- Auto share to social or scheduled publishing
+
+---
+
+IMPLEMENTATION PRIORITY (what to do first)
+1. Add DB schema + migration
+2. Add backend routes for submit & list published
+3. Add image upload endpoint & serve static files
+4. Add basic BlogList & BlogDetail pages (client)
+5. Add SubmitStoryForm and wire to backend
+6. Add admin endpoints and a minimal admin page to review & approve
+
+---
+
+If you understand: implement Phase-1 exactly as above — create the files listed, commit to the repo, run migrations, and provide:
+- A short list of changed files (path + purpose)
+- 3 curl examples (submit, admin list, admin approve)
+- One sample published blog (seeded) visible at /blog and /blog/:slug
+
+Finish Phase-1 with basic documentation in `README.md

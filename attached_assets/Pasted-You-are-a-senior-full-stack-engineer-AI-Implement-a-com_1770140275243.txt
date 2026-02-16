@@ -1,0 +1,462 @@
+You are a senior full-stack engineer AI. Implement a complete **Login / Register + Join-Us (Technician) + Contact pipeline** for the Attached-Asset project (Express backend + React frontend). Make minimal invasive changes and follow the project's style (TypeScript, Drizzle ORM, tsx runtime). Use secure defaults, store data in the existing Neon/Postgres DB (process.env.DATABASE_URL already present), and make the frontend integration user-friendly and mobile responsive.
+
+--- GOAL (high level)
+1. Add backend API endpoints for:
+   - POST /api/auth/register        (create user, hash password)
+   - POST /api/auth/login           (verify credentials, set httpOnly JWT cookie)
+   - POST /api/auth/logout
+   - GET  /api/auth/user            (return current user from cookie)
+   - POST /api/contact              (create lead/contact message)
+   - POST /api/join                 (technician application)
+2. Add DB tables (Drizzle schema + migration) for users, leads, and applications.
+3. Add frontend React components:
+   - RegisterForm, LoginForm (reusable)
+   - JoinUs (simple form added to Contact page)
+   - Update Contact page to show "Join Us" CTA and store submissions into DB
+   - Wire navbar "Login / Register" to show modal or page with both flows
+4. Send an admin notification email when a lead or new technician application arrives (Nodemailer using SMTP / SendGrid).
+5. Include complete step-by-step commands to run, test, and deploy.
+
+--- ASSUMPTIONS
+- Repo root = Attached-Asset (where package.json exists).
+- Server entry = server/index.ts and routes registered in server/routes.ts.
+- Drizzle config exists (drizzle.config.ts) and `npm run db:push` uses drizzle-kit.
+- You can add dependencies to package.json and run npm install.
+
+--- ENV VARS (add to .env)
+Add or verify these lines (do NOT commit .env):
+DATABASE_URL=postgresql://...        # already present
+JWT_SECRET=replace_with_a_random_secret_32_chars
+SMTP_HOST=smtp.example.com
+SMTP_PORT=587
+SMTP_USER=your_smtp_user
+SMTP_PASS=your_smtp_pass
+ADMIN_EMAIL=ranjanmanish615@gmail.com
+
+--- DEPENDENCIES (backend + frontend)
+Install these (backend server uses same repo):
+npm install bcryptjs jsonwebtoken cookie-parser nodemailer zod
+npm install -D @types/bcryptjs @types/jsonwebtoken
+
+(If using drizzle on server side already installed; otherwise add drizzle packages consistent with repo)
+
+--- DB: Drizzle schema additions
+Create file: server/db/schema/auth.ts (or add to existing shared schema structure). If existing folder is server or shared, adapt paths.
+
+Paste this Drizzle schema (TS):
+
+// server/db/schema/auth.ts
+import { pgTable, serial, varchar, text, timestamp, boolean } from "drizzle-orm/pg-core";
+
+export const users = pgTable("users", {
+  id: serial("id").primaryKey(),
+  email: varchar("email", { length: 320 }).notNull().unique(),
+  password_hash: text("password_hash").notNull(),
+  name: varchar("name", { length: 120 }).notNull(),
+  role: varchar("role", { length: 30 }).default("customer"),
+  created_at: timestamp("created_at").defaultNow().notNull()
+});
+
+export const leads = pgTable("leads", {
+  id: serial("id").primaryKey(),
+  name: varchar("name", { length: 120 }).notNull(),
+  phone: varchar("phone", { length: 30 }).notNull(),
+  email: varchar("email", { length: 320 }),
+  message: text("message"),
+  source: varchar("source", { length: 80 }).default("website"),
+  created_at: timestamp("created_at").defaultNow().notNull()
+});
+
+export const technician_applications = pgTable("technician_applications", {
+  id: serial("id").primaryKey(),
+  name: varchar("name", { length: 120 }).notNull(),
+  phone: varchar("phone", { length: 30 }).notNull(),
+  email: varchar("email", { length: 320 }),
+  city: varchar("city", { length: 80 }),
+  experience_years: varchar("experience_years", { length: 40 }),
+  message: text("message"),
+  created_at: timestamp("created_at").defaultNow().notNull()
+});
+
+After adding schema file, run:
+npm run db:push
+
+This will create the tables. If drizzle.config exports an array, import the new file as needed.
+
+--- Backend: add auth & contact APIs
+
+Create file: server/routes/auth.ts (or edit server/routes.ts to import and add these routes). Place implementation to use Drizzle queries.
+
+Example implementation (TypeScript). Place in server/routes/auth.ts:
+
+// server/routes/auth.ts
+import express from "express";
+import { z } from "zod";
+import bcrypt from "bcryptjs";
+import jwt from "jsonwebtoken";
+import { eq } from "drizzle-orm";
+import { db } from "../db"; // adjust to your db export
+import { users } from "../db/schema/auth";
+
+const router = express.Router();
+const JWT_SECRET = process.env.JWT_SECRET!;
+
+const registerSchema = z.object({
+  name: z.string().min(2),
+  email: z.string().email(),
+  password: z.string().min(6)
+});
+
+router.post("/register", async (req, res) => {
+  try {
+    const data = registerSchema.parse(req.body);
+    const existing = await db.select().from(users).where(eq(users.email, data.email));
+    if (existing.length) return res.status(409).json({ message: "Email already registered" });
+    const hash = await bcrypt.hash(data.password, 10);
+    const [r] = await db.insert(users).values({
+      name: data.name,
+      email: data.email,
+      password_hash: hash
+    }).returning();
+    const token = jwt.sign({ id: r.id, email: r.email }, JWT_SECRET, { expiresIn: "7d" });
+    res.cookie("token", token, { httpOnly: true, sameSite: "lax" });
+    res.json({ id: r.id, name: r.name, email: r.email });
+  } catch (err) {
+    res.status(400).json({ message: (err as any).message });
+  }
+});
+
+const loginSchema = z.object({
+  email: z.string().email(),
+  password: z.string().min(6)
+});
+
+router.post("/login", async (req, res) => {
+  try {
+    const data = loginSchema.parse(req.body);
+    const [user] = await db.select().from(users).where(eq(users.email, data.email));
+    if (!user) return res.status(401).json({ message: "Invalid credentials" });
+    const ok = await bcrypt.compare(data.password, user.password_hash);
+    if (!ok) return res.status(401).json({ message: "Invalid credentials" });
+    const token = jwt.sign({ id: user.id, email: user.email }, JWT_SECRET, { expiresIn: "7d" });
+    res.cookie("token", token, { httpOnly: true, sameSite: "lax" });
+    res.json({ id: user.id, name: user.name, email: user.email });
+  } catch (err) {
+    res.status(400).json({ message: (err as any).message });
+  }
+});
+
+router.post("/logout", (req, res) => {
+  res.clearCookie("token");
+  res.json({ ok: true });
+});
+
+router.get("/user", async (req, res) => {
+  try {
+    const token = req.cookies?.token;
+    if (!token) return res.json(null);
+    const payload: any = jwt.verify(token, JWT_SECRET);
+    const [user] = await db.select().from(users).where(eq(users.id, payload.id));
+    if (!user) return res.json(null);
+    res.json({ id: user.id, name: user.name, email: user.email });
+  } catch (err) {
+    res.json(null);
+  }
+});
+
+export default router;
+
+Then in server/routes.ts or server/index.ts register this router:
+
+import authRouter from "./routes/auth";
+app.use("/api/auth", authRouter);
+
+--- Backend: contact & join endpoints and notifications
+
+Create server/routes/contact.ts (or add to existing routes file):
+
+// server/routes/contact.ts
+import express from "express";
+import { z } from "zod";
+import { db } from "../db";
+import { leads, technician_applications } from "../db/schema/auth";
+import { sendAdminNotification } from "../utils/notify"; // we will create this
+
+const router = express.Router();
+
+const leadSchema = z.object({
+  name: z.string().min(1),
+  phone: z.string().min(6),
+  email: z.string().optional().nullable(),
+  message: z.string().optional().nullable(),
+  source: z.string().optional().default("website")
+});
+
+router.post("/contact", async (req, res) => {
+  try {
+    const data = leadSchema.parse(req.body);
+    const [r] = await db.insert(leads).values({
+      name: data.name,
+      phone: data.phone,
+      email: data.email ?? null,
+      message: data.message ?? null,
+      source: data.source
+    }).returning();
+    // notify admin
+    await sendAdminNotification({
+      subject: "New contact lead",
+      text: `Name: ${data.name}\nPhone: ${data.phone}\nEmail: ${data.email}\nMessage: ${data.message}`
+    });
+    res.json({ ok: true, id: r.id });
+  } catch (err) { res.status(400).json({ message: (err as any).message }); }
+});
+
+const joinSchema = z.object({
+  name: z.string().min(1),
+  phone: z.string().min(6),
+  email: z.string().optional().nullable(),
+  city: z.string().optional().nullable(),
+  experience_years: z.string().optional().nullable(),
+  message: z.string().optional().nullable()
+});
+
+router.post("/join", async (req, res) => {
+  try {
+    const data = joinSchema.parse(req.body);
+    const [r] = await db.insert(technician_applications).values({
+      name: data.name,
+      phone: data.phone,
+      email: data.email ?? null,
+      city: data.city ?? null,
+      experience_years: data.experience_years ?? null,
+      message: data.message ?? null
+    }).returning();
+    await sendAdminNotification({
+      subject: "New technician application",
+      text: `Name: ${data.name}\nPhone: ${data.phone}\nEmail: ${data.email}\nCity: ${data.city}\nExperience: ${data.experience_years}\nMessage:${data.message}`
+    });
+    res.json({ ok: true, id: r.id });
+  } catch (err) { res.status(400).json({ message: (err as any).message }); }
+});
+
+export default router;
+
+Register in server/routes.ts:
+import contactRouter from "./routes/contact";
+app.use("/api", contactRouter);
+
+--- Backend: admin notify util (nodemailer)
+Create server/utils/notify.ts:
+
+import nodemailer from "nodemailer";
+
+const transporter = nodemailer.createTransport({
+  host: process.env.SMTP_HOST,
+  port: +(process.env.SMTP_PORT || 587),
+  secure: false,
+  auth: {
+    user: process.env.SMTP_USER,
+    pass: process.env.SMTP_PASS
+  }
+});
+
+export async function sendAdminNotification(opts: { subject: string; text: string; html?: string }) {
+  const admin = process.env.ADMIN_EMAIL!;
+  try {
+    await transporter.sendMail({
+      from: `"Website" <${process.env.SMTP_USER}>`,
+      to: admin,
+      subject: opts.subject,
+      text: opts.text,
+      html: opts.html
+    });
+  } catch (err) {
+    console.error("notify error", err);
+  }
+}
+
+--- Backend: middleware & cookie parser
+Ensure server/index.ts has cookie-parser and express.json() before routes:
+
+import cookieParser from "cookie-parser";
+app.use(express.json());
+app.use(cookieParser());
+
+--- Frontend: components & pages
+Under client/src/components add:
+
+1) AuthModal or pages/RegisterForm.tsx and LoginForm.tsx
+
+Example RegisterForm (React + fetch):
+
+// client/src/components/RegisterForm.tsx
+import React, { useState } from "react";
+
+export default function RegisterForm({ onSuccess }: { onSuccess?: () => void }) {
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  async function submit(e: any) {
+    e.preventDefault();
+    setBusy(true); setError("");
+    const res = await fetch("/api/auth/register", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name, email, password })
+    });
+    const data = await res.json();
+    setBusy(false);
+    if (!res.ok) return setError(data.message || "Failed");
+    onSuccess && onSuccess();
+  }
+
+  return (
+    <form onSubmit={submit} className="space-y-3">
+      <input required placeholder="Full name" value={name} onChange={e=>setName(e.target.value)} />
+      <input required placeholder="Email" value={email} onChange={e=>setEmail(e.target.value)} />
+      <input required type="password" placeholder="Password" value={password} onChange={e=>setPassword(e.target.value)} />
+      {error && <div className="text-red-600">{error}</div>}
+      <button disabled={busy}>{busy ? "Please wait..." : "Register"}</button>
+    </form>
+  );
+}
+
+Create LoginForm similarly:
+
+// client/src/components/LoginForm.tsx
+import React, { useState } from "react";
+export default function LoginForm({ onSuccess }: { onSuccess?: () => void }) {
+  const [email, setEmail] = useState(""), [password, setPassword] = useState(""), [err, setErr] = useState(""), [busy,setBusy]=useState(false);
+  async function submit(e:any){ e.preventDefault(); setBusy(true); setErr("");
+    const r = await fetch("/api/auth/login", { method:"POST", headers:{ "content-type":"application/json"}, body: JSON.stringify({ email, password }) });
+    const data = await r.json(); setBusy(false);
+    if (!r.ok) return setErr(data.message || "Invalid");
+    onSuccess && onSuccess();
+  }
+  return (<form onSubmit={submit}><input required value={email} onChange={e=>setEmail(e.target.value)} placeholder="Email"/><input required type="password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="Password"/>{err && <div>{err}</div>}<button disabled={busy}>{busy? "..." : "Login"}</button></form>);
+}
+
+2) JoinUsForm (used in Contact page)
+
+// client/src/components/JoinUsForm.tsx
+import React, { useState } from "react";
+
+export default function JoinUsForm() {
+  const [name,setName]=useState(""), [phone,setPhone]=useState(""), [email,setEmail]=useState(""), [city,setCity]=useState(""), [exp,setExp]=useState(""), [msg,setMsg]=useState(""), [ok,setOk]=useState("");
+  async function submit(e:any){ e.preventDefault(); const r = await fetch("/api/join", { method:"POST", headers:{"content-type":"application/json"}, body: JSON.stringify({ name, phone, email, city, experience_years: exp, message: msg }) }); const d = await r.json(); if (r.ok) { setOk("Application sent. We'll contact you."); setName(""); setPhone(""); setEmail(""); setCity(""); setExp(""); setMsg(""); } else setOk(d.message || "Error"); }
+  return (<form onSubmit={submit} className="space-y-3">
+    <input required placeholder="Full name" value={name} onChange={e=>setName(e.target.value)}/>
+    <input required placeholder="Phone" value={phone} onChange={e=>setPhone(e.target.value)}/>
+    <input placeholder="Email" value={email} onChange={e=>setEmail(e.target.value)}/>
+    <input placeholder="City" value={city} onChange={e=>setCity(e.target.value)}/>
+    <input placeholder="Years of experience" value={exp} onChange={e=>setExp(e.target.value)}/>
+    <textarea placeholder="Message" value={msg} onChange={e=>setMsg(e.target.value)} />
+    <button>Apply to Join</button>
+    {ok && <div className="text-green-600">{ok}</div>}
+  </form>);
+}
+
+3) Contact page update:
+- Replace the existing "Send us a Message" form to POST to /api/contact
+- Add JoinUsForm component under the contact column or as a tab.
+
+Example contact submit handler:
+fetch("/api/contact", { method: "POST", headers: {"content-type":"application/json"}, body: JSON.stringify({ name, phone, email, message }) });
+
+4) Navbar: make "Login / Register" button open a modal or link to /auth page that contains LoginForm & RegisterForm side-by-side or with tabs.
+
+Add a route /auth in client/src/pages/Auth.tsx that renders <LoginForm /> and <RegisterForm /> and updates UI on success (redirect to /profile or /).
+
+--- Frontend UX requirements
+- All forms should be responsive and use existing project design system (Tailwind classes if used).
+- Use client-side basic validation before POST.
+- Show success messages and error messages.
+- After login, call GET /api/auth/user to refresh UI.
+
+--- Storing & Pipeline
+- Leads, users, and applications are stored in Postgres via Drizzle tables above.
+- Admin gets email via nodemailer (configured with env SMTP).
+- Cookies: JWT stored in httpOnly cookie named "token".
+- For API protection: future endpoints can verify JWT by verifying cookie token.
+
+--- Security notes
+- Hash passwords with bcrypt.
+- Use httpOnly cookie to avoid XSS reading token.
+- Use TLS in production for cookies secure flag.
+- Limit rate on endpoints if necessary (not included now).
+
+--- Testing (local)
+1. Install deps
+   npm install
+
+2. Push DB (after schema changes)
+   npm run db:push
+
+3. Start dev server
+   npm run dev
+
+4. Test endpoints with curl:
+
+# register
+curl -X POST http://localhost:5000/api/auth/register -H "Content-Type: application/json" -d '{"name":"Test","email":"t@test.com","password":"secret123"}' -i
+
+# login
+curl -X POST http://localhost:5000/api/auth/login -H "Content-Type: application/json" -d '{"email":"t@test.com","password":"secret123"}' -i -c cookiejar.txt
+
+# get user (after cookie)
+curl -X GET http://localhost:5000/api/auth/user -b cookiejar.txt
+
+# contact lead
+curl -X POST http://localhost:5000/api/contact -H "Content-Type: application/json" -d '{"name":"A","phone":"+919876543210","message":"Test"}'
+
+# join
+curl -X POST http://localhost:5000/api/join -H "Content-Type: application/json" -d '{"name":"A","phone":"+919876543210","city":"Delhi","experience_years":"3"}'
+
+--- Frontend manual test
+- Open /auth; register a user; login; verify cookie set in browser (httpOnly so not visible via JS).
+- Submit contact form; ensure admin_email receives notification (check SMTP logs).
+- Submit join application; check DB and email.
+
+--- Deployment notes
+- Add env vars in your Replit / Vercel / Render / Fly dashboard:
+  DATABASE_URL, JWT_SECRET, SMTP_* variables, ADMIN_EMAIL
+- Ensure your hosting supports background process & port (Replit does). For production prefer Vercel/Render/AWS:
+  - Build frontend and host on Vercel
+  - Backend host: Render/ Railway/ Fly / DigitalOcean App Platform (free tiers exist but may have limitations).
+- Use HTTPS in production and set cookie secure: true.
+
+--- Extra improvements (recommended but optional)
+- Add rate limiting (express-rate-limit) to contact/join routes.
+- Add ReCAPTCHA on contact & join forms.
+- Add email verification & password reset flows.
+- Add admin dashboard to view leads & applications.
+- Add server-side logging + Sentry.
+
+--- Deliverable checklist (do these modifications)
+1. Add Drizzle auth schema file (server/db/schema/auth.ts)
+2. Run `npm run db:push`
+3. Add server/routes/auth.ts and server/routes/contact.ts
+4. Add server/utils/notify.ts
+5. Add cookie-parser middleware to server/index.ts
+6. Register routers in server/routes.ts (or index.ts)
+7. Add client/src/components/RegisterForm.tsx, LoginForm.tsx, JoinUsForm.tsx
+8. Update client contact page to POST to /api/contact and import JoinUsForm
+9. Add client route /auth for login/register and link navbar to it
+10. Update .env with JWT_SECRET and SMTP_* and ADMIN_EMAIL
+
+--- If you understand, execute these edits now and return:
+- A short summary of file changes made (paths + one-line description).
+- The exact commands you ran (or need to run).
+- Any errors encountered and next steps.
+
+--- NOTES for the executor AI:
+- If you modify package.json, call `npm install`.
+- Keep all code TypeScript and match existing project conventions.
+- Use zod for request body validation.
+- Do not remove or break existing Replit auth integration unless the feature is explicitly disabled via DISABLE_REPLIT_AUTH.
+- Keep changes minimal and isolated so the rest of the app keeps working.
+
+--- END ---
